@@ -6,10 +6,7 @@ import dns.zone
 import argparse
 import re
 import sys
-
-# TODO:
-# Zone transfer checking
-# Writing output to file
+import json
 
 class SubEnum:
     def __init__(self):
@@ -53,11 +50,11 @@ class SubEnum:
                 try:
                     answer = dns.resolver.query("{}.{}".format(sub, self.domain), rcd)
                 except dns.resolver.NXDOMAIN:
-                    print("\t[-] ERROR: Recieved NXDOMAIN")
+                    print("\t[-] ERROR: Received NXDOMAIN")
                 except dns.resolver.NoAnswer:
-                    print("\t[-] ERROR: Recieved NoAnswer")
+                    print("\t[-] ERROR: Received NoAnswer")
                 except dns.resolver.Timeout:
-                    print("\t[-] ERROR: Recieved Timeout")
+                    print("\t[-] ERROR: Received Timeout")
                 else:
                     record_list = []
                     # Take the answer from the query and add the addresses to the record list
@@ -67,25 +64,67 @@ class SubEnum:
                         record_list.append(item.to_text())
                     # Add records to results list for subdomain
                     results[rcd] = record_list
-            # Append all record query results to the scanned_subs list
-            self.scanned_subs.append(results)
+            # Check for Zone Transfer if requested
+            if self.zt: # Make sure zone transfer is requested and nameservers exist in the results dictionary
+                answer = self.zone_transfer("{}.{}".format(sub, self.domain))
+                #answer = self.zone_transfer("zonetransfer.me") - for testing purposes
+                if answer != None: # Ensuring that it does not get added to the results if it was not successful
+                    results["Zone Transfer"] = answer
+            # Append all record query results to the scanned_subs list if there are any results gathered
+            if len(results) > 1:
+                self.scanned_subs.append(results)
                 
+    def zone_transfer(self, hostname):
+        nameservers = []
+        try:
+            answer = dns.resolver.query(hostname, "NS")
+        except:
+            print("\t[-] An error ocurred while grabbing nameservers, likely unavailable")
+        else:
+            for item in answer:
+                nameservers.append(item.to_text()) # Append each result to nameservers list, not entirely necessary but makes everything neater
+                
+            for ns in nameservers:
+                print("\t[+] Attempting zone transfer at: {} with nameserver: {}".format(hostname, ns))
+                try:
+                    z = dns.zone.from_xfr(dns.query.xfr(ns, hostname))
+                    names = z.nodes.keys()
+                    #names.sort()
+                    for n in names:
+                        print(z[n].to_text(n))
+                    print("\t[+] Zone Transfer successful")
+                    return z.to_text()
+                except dns.query.TransferError:
+                    print("\t[-] Zone Transfer failed")
+                except ConnectionResetError:
+                    print("\t[-] Connection forcibly closed by remote host, zone transfer failed")
+    
+    # Print results and write to file at the end
     def print_results(self):
         print("[+] Printing scanned subdomain results:")
         for res in self.scanned_subs:
             print(res)
+        if self.output: # 
+            if self.json:
+                with open(self.output, "w") as f:
+                    json.dump(self.scanned_subs, f)
+            else:
+                with open(self.output, "w") as f:
+                    for result in self.scanned_subs:
+                        for key in result.keys():
+                            f.write("{}: {}\n".format(key, result[key]))
         
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="DNS enumeration tool designed for pentesting reconnaissance",
-        #usage="%(prog)s [options] domain",
+        usage="%(prog)s domain [options]",
         add_help=False)
     
     # Little control with argparse; optget may be better
     parser.add_argument("-h", "--help", action="help", help="Display this helpful bit and exit")
     
     parser.add_argument("-w", "--wordlist", required=True, dest="wordlist", help="Specify wordlist file")
-    parser.add_argument("--records", required=True, dest="records", help="Query for DNS records; Options are NS, A, and CNAME", choices=["NS", "A", "CNAME"], nargs="+")
+    parser.add_argument("--records", required=True, dest="records", help="Query for DNS records; Options are NS, A, CNAME, and MX", choices=["NS", "A", "CNAME", "MX"], nargs="+")
     
     parser.add_argument("-z", "--zone-transfer", dest="transfer", action="store_true", help="Attempt a zone transfer on domain (Note: this may be illegal depending on your area, make sure you are authorized to perform a zone transfer on your target assets)")
     parser.add_argument("-o", "--output", dest="output", help="Specify output file")
