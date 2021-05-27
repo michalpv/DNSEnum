@@ -7,112 +7,102 @@ import argparse
 import re
 import sys
 import json
+    
+def verify():
+    subs = []
+    # Check that domain is in correct format; otherwise, produce error:
+    # Thank https://stackoverflow.com/questions/8467647/python-domain-name-check-using-regex
+    if re.search("^[a-zA-Z\d-]{,63}(\.[a-zA-Z\d-]{,63})*$", args.domain) == None:
+        print("[-] Domain is not valid... quitting")
+        sys.exit(1)
+    else:
+        print("[+] Domain is valid")
+    # Attempt reading wordlist
+    try:
+        with open(args.wordlist, "r") as f:
+            subs = f.read().split()
+    except FileNotFoundError:
+        print("[-] Wordlist not found... quitting")
+        sys.exit(1)
+    print("[+] Found wordlist")
+    return subs
 
-class SubEnum:
-    def __init__(self):
-        self.subdomains = []
-        self.domain = args.domain
-        self.wordlist = args.wordlist
-        self.output = args.output
-        self.records = args.records
-        # True/False:
-        self.zt = args.transfer
-        self.json = args.json
-        #self.verify()
-        
-        self.scanned_subs = []
-        
-    def verify(self):
-        # Check that domain is in correct format; otherwise, produce error:
-        # Thank https://stackoverflow.com/questions/8467647/python-domain-name-check-using-regex
-        if re.search("^[a-zA-Z\d-]{,63}(\.[a-zA-Z\d-]{,63})*$", self.domain) == None:
-            print("[-] Domain is not valid... quitting")
-            sys.exit(1)
-        else:
-            print("[+] Domain is valid")
-        # Attempt reading wordlist
-        try:
-            with open(self.wordlist, "r") as f:
-                self.subdomains = f.read().split()
-        except FileNotFoundError:
-            print("[-] Wordlist not found... quitting")
-            sys.exit(1)
-        print("[+] Found wordlist")
-    
-    def enum(self):
-        # Remove duplicate items from records list
-        self.records = list(dict.fromkeys(self.records))
-        for sub in self.subdomains:
-            results = {"Hostname": "{}.{}".format(sub, self.domain)} # Used to collect all records for subdomain
-            for rcd in self.records:
-                print("[*] Querying {}.{} for {} records".format(sub, self.domain, rcd))
-                # Make the query and initialize the record list
-                try:
-                    answer = dns.resolver.query("{}.{}".format(sub, self.domain), rcd)
-                except dns.resolver.NXDOMAIN:
-                    print("\t[-] ERROR: Received NXDOMAIN")
-                except dns.resolver.NoAnswer:
-                    print("\t[-] ERROR: Received NoAnswer")
-                except dns.resolver.Timeout:
-                    print("\t[-] ERROR: Received Timeout")
-                else:
-                    record_list = []
-                    # Take the answer from the query and add the addresses to the record list
-                    # https://www.programcreek.com/python/example/97695/dns.resolver.NXDOMAIN - referenced for the next couple lines
-                    for item in answer:
-                        print("\t[+] Found {} record: {}".format(rcd, item.to_text()))
-                        record_list.append(item.to_text())
-                    # Add records to results list for subdomain
-                    results[rcd] = record_list
-            # Check for Zone Transfer if requested
-            if self.zt: # Make sure zone transfer is requested and nameservers exist in the results dictionary
-                answer = self.zone_transfer("{}.{}".format(sub, self.domain))
-                #answer = self.zone_transfer("zonetransfer.me") - for testing purposes
-                if answer != None: # Ensuring that it does not get added to the results if it was not successful
-                    results["Zone Transfer"] = answer
-            # Append all record query results to the scanned_subs list if there are any results gathered
-            if len(results) > 1:
-                self.scanned_subs.append(results)
-                
-    def zone_transfer(self, hostname):
-        nameservers = []
-        try:
-            answer = dns.resolver.query(hostname, "NS")
-        except:
-            print("\t[-] An error ocurred while grabbing nameservers, likely unavailable")
-        else:
-            for item in answer:
-                nameservers.append(item.to_text()) # Append each result to nameservers list, not entirely necessary but makes everything neater
-                
-            for ns in nameservers:
-                print("\t[+] Attempting zone transfer at: {} with nameserver: {}".format(hostname, ns))
-                try:
-                    z = dns.zone.from_xfr(dns.query.xfr(ns, hostname))
-                    names = z.nodes.keys()
-                    #names.sort()
-                    for n in names:
-                        print(z[n].to_text(n))
-                    print("\t[+] Zone Transfer successful")
-                    return z.to_text()
-                except dns.query.TransferError:
-                    print("\t[-] Zone Transfer failed")
-                except ConnectionResetError:
-                    print("\t[-] Connection forcibly closed by remote host, zone transfer failed")
-    
-    # Print results and write to file at the end
-    def print_results(self):
-        print("[+] Printing scanned subdomain results:")
-        for res in self.scanned_subs:
-            print(res)
-        if self.output: # 
-            if self.json:
-                with open(self.output, "w") as f:
-                    json.dump(self.scanned_subs, f)
+def enum(subdomains):
+    scanned_subs = []
+    # Remove duplicate items from records list
+    args.records = list(dict.fromkeys(args.records))
+    for sub in subdomains:
+        results = {"Hostname": "{}.{}".format(sub, args.domain)} # Used to collect all records for subdomain
+        for rcd in args.records:
+            print("[*] Querying {}.{} for {} records".format(sub, args.domain, rcd))
+            # Make the query and initialize the record list
+            try:
+                answer = dns.resolver.query("{}.{}".format(sub, args.domain), rcd)
+            except dns.resolver.NXDOMAIN:
+                print("\t[-] ERROR: Received NXDOMAIN")
+            except dns.resolver.NoAnswer:
+                print("\t[-] ERROR: Received NoAnswer")
+            except dns.resolver.Timeout:
+                print("\t[-] ERROR: Received Timeout")
             else:
-                with open(self.output, "w") as f:
-                    for result in self.scanned_subs:
-                        for key in result.keys():
-                            f.write("{}: {}\n".format(key, result[key]))
+                record_list = []
+                # Take the answer from the query and add the addresses to the record list
+                # https://www.programcreek.com/python/example/97695/dns.resolver.NXDOMAIN - referenced for the next couple lines
+                for item in answer:
+                    print("\t[+] Found {} record: {}".format(rcd, item.to_text()))
+                    record_list.append(item.to_text())
+                # Add records to results list for subdomain
+                results[rcd] = record_list
+        # Check for Zone Transfer if requested
+        if args.transfer: # Make sure zone transfer is requested and nameservers exist in the results dictionary
+            answer = zone_transfer("{}.{}".format(sub, args.domain))
+            #answer = zone_transfer("zonetransfer.me") - for testing purposes
+            if answer != None: # Ensuring that it does not get added to the results if it was not successful
+                results["Zone Transfer"] = answer
+        # Append all record query results to the scanned_subs list if there are any results gathered
+        if len(results) > 1:
+            scanned_subs.append(results)
+    return scanned_subs
+            
+def zone_transfer(hostname):
+    nameservers = []
+    try:
+        answer = dns.resolver.query(hostname, "NS")
+    except:
+        print("\t[-] An error ocurred while grabbing nameservers, likely unavailable")
+    else:
+        for item in answer:
+            nameservers.append(item.to_text()) # Append each result to nameservers list, not entirely necessary but makes everything neater
+            
+        for ns in nameservers:
+            print("\t[+] Attempting zone transfer at: {} with nameserver: {}".format(hostname, ns))
+            try:
+                z = dns.zone.from_xfr(dns.query.xfr(ns, hostname))
+                names = z.nodes.keys()
+                #names.sort()
+                for n in names:
+                    print(z[n].to_text(n))
+                print("\t[+] Zone Transfer successful")
+                return z.to_text()
+            except dns.query.TransferError:
+                print("\t[-] Zone Transfer failed")
+            except ConnectionResetError:
+                print("\t[-] Connection forcibly closed by remote host, zone transfer failed")
+
+# Print results and write to file at the end
+def print_results(scanned_subs):
+    print("[+] Printing scanned subdomain results:")
+    for res in scanned_subs:
+        print(res)
+    if args.output: # 
+        if args.json:
+            with open(args.output, "w") as f:
+                json.dump(scanned_subs, f)
+        else:
+            with open(args.output, "w") as f:
+                for result in scanned_subs:
+                    for key in result.keys():
+                        f.write("{}: {}\n".format(key, result[key]))
         
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -132,9 +122,9 @@ if __name__ == "__main__":
     parser.add_argument("domain", help="Hostname to run enumeration on")
     args = parser.parse_args()
     
-# Create SubEnum object, grab subs and verify domain
-e = SubEnum()
-e.verify()
+    
+# Grab subs and verify domain
+subs = verify()
 # Enumerate and print results
-e.enum()
-e.print_results()
+scanned_subs = enum(subs)
+print_results(scanned_subs)
