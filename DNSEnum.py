@@ -37,7 +37,7 @@ def enum(subdomains):
             print("[*] Querying {}.{} for {} records".format(sub, args.domain, rcd))
             # Make the query and initialize the record list
             try:
-                answer = dns.resolver.query("{}.{}".format(sub, args.domain), rcd)
+                answer = dns.resolver.resolve("{}.{}".format(sub, args.domain), rcd)
             except dns.resolver.NXDOMAIN:
                 print("\t[-] ERROR: Received NXDOMAIN")
             except dns.resolver.NoAnswer:
@@ -67,7 +67,7 @@ def enum(subdomains):
 def zone_transfer(hostname):
     nameservers = []
     try:
-        answer = dns.resolver.query(hostname, "NS")
+        answer = dns.resolver.resolve(hostname, "NS")
     except:
         print("\t[-] An error ocurred while grabbing nameservers, likely unavailable")
     else:
